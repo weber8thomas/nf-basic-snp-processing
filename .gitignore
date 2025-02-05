@@ -169,3 +169,17 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+######################
+# NEXTFLOW
+######################
+
+# Nextflow logs
+.nextflow.log*
+# Nextflow work directory
+work/
+# Fasta files
+*.fasta
+*.fa
+# Nextflow directory
+.nextflow/
