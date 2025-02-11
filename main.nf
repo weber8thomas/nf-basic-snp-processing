@@ -52,8 +52,9 @@ process BCF_FILTER_AND_NORM {
     """
     # Filter SNPs with appropriate criteria
     # bcftools view -v snps -i 'QUAL >= 20 && GT==\"0/1\" && FORMAT/DP>=5' $vcf > filtered.vcf
-    bcftools view -v snps -i 'QUAL >= 20 && FORMAT/DP>=5' $vcf > filtered.vcf
-    
+    # bcftools view -v snps -i 'QUAL >= 20 && FORMAT/DP>=5' $vcf > filtered.vcf
+    bcftools view -v snps -i 'QUAL >= 20 && FORMAT/DP>=5' ${vcf} > filtered.vcf  # Changed from vcf.tbi to vcf
+
     # Split multi-allelic sites
     bcftools norm -m-any filtered.vcf > split.vcf
     
@@ -132,7 +133,7 @@ process ANNOTATE_WITH_VCFANNO {
     EOF
 
     # Annotate using vcfanno
-    vcfanno -p ${params.cpus} vcfanno.conf ${split_vcf} | bgzip > ${sample}.${chrom}.annotated.vcf.gz
+    vcfanno -p ${task.cpus} vcfanno.conf ${split_vcf} | bgzip > ${sample}.${chrom}.annotated.vcf.gz
     tabix -p vcf ${sample}.${chrom}.annotated.vcf.gz
     """
 }
@@ -152,16 +153,13 @@ process MERGE_ANNOTATED_VCFS {
 
     script:
     """
-    # Merge VCFs
+    # Merge multiple VCFs
     bcftools concat \
+        --output ${sample}.merged.annotated.vcf.gz \
         --output-type z \
-        ${vcfs.join(' ')} > ${sample}.merged.vcf.gz
+        ${vcfs.join(' ')}
 
-    # Filter heterozygous only and apply AF filtering:
-
-    bcftools view -i ${sample}.merged.vcf.gz | bgzip ${sample}.merged.annotated.vcf.gz
-
-    # Index merged VCF
+    # Index the merged VCF
     tabix -p vcf ${sample}.merged.annotated.vcf.gz
     """
 }
@@ -169,6 +167,8 @@ process MERGE_ANNOTATED_VCFS {
     // #bcftools view -i 'GT!="0/0"' ${sample}.merged.vcf.gz | \
     // #bcftools view -i 'INFO/AF < 0.05' | \
     // # bgzip > ${sample}.merged.annotated.vcf.gz
+    // bcftools view -i ${sample}.merged.vcf.gz | bgzip > ${sample}.merged.annotated.vcf.gz
+
 
 process EXPORT_TABLE {
     tag { sample }
@@ -185,10 +185,13 @@ process EXPORT_TABLE {
     script:
     """
     # Write header
-    echo -e "ID\\tAC\\tAF\\tSAMPLE" > "${sample}.txt"
+    echo -e "ID\\tAC\\tAF\\tGT\\tSAMPLE" > "${sample}.txt"
 
-    # Extract fields and append sample name
-    bcftools query -f '%CHROM:%POS:%REF:%ALT\\t%INFO/AC\\t%INFO/AF\\n' "${vcf}" | \
+    # Extract fields including genotype and append sample name.
+    # The %CHROM:%POS:%REF:%ALT creates a unique ID,
+    # %INFO/AC and %INFO/AF extract the AC and AF values,
+    # and [%GT] extracts the genotype from the sample column.
+    bcftools query -f '%CHROM:%POS:%REF:%ALT\\t%INFO/AC\\t%INFO/AF\\t[%GT]\\n' "${vcf}" | \
         awk -v sample="${sample}" 'BEGIN {OFS="\\t"} {sub(/^chr/, "", \$1); print \$0, sample}' >> "${sample}.txt"
 
     # Compress table
